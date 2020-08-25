@@ -1,4 +1,5 @@
-GraalVM workshop for Reliance group, India
+# GraalVM Hands-on Lab
+_Wednesday, 2 September 2020_
 
 Table of Contents:
 
@@ -20,7 +21,7 @@ Table of Contents:
 
 In order to get yourself ready for this workshop, you need to prepare your machine/laptop to have the following requirements.
 
-  * Supported OS is MacOS and Linux. Windows is supported by GraalVM but for this workshop we do not use Windows. This hands-on labs exercise have been tested with Ubuntu 20.04, Fedora 32 (with minor tweak due to CGroup v2 issue - see the workaround at the later part of this hands-on labs) and MacOS 10.15.6.
+  * Supported OS is MacOS and Linux. Windows is supported by GraalVM but for this workshop we do not use Windows. This hands-on labs exercise have been tested with Oracle Linux 8.2, Ubuntu 20.04, Fedora 32 (with minor tweak due to CGroup v2 issue - see the workaround at the later part of this hands-on labs) and MacOS 10.15.6.
   * Install the following tools : `git`, `curl`, `unzip`, `Docker`, `Apache Maven` and `your favourite IDE` (optional).
   * Internet connection. You will need to access some online Github repositories during workshop exercises.
   * Uninstall any JDK/OpenJDK that comes with the OS. Example Fedora 32 comes with OpenJDK 8.
@@ -766,7 +767,14 @@ The result is 33.34 seconds, and that'd be the throughput result before we optim
 
 Next we will create a PGO file and create a new topten binary executable application.
 
-To create a PGO ```topten.iprof``` file, we can execute below command:
+There are 2 ways of creating a PGO file:
+* Via `java -Dgraal.PGOInstrument`
+* Via `native-image --pgo-instrument`
+
+
+##### Generating PGO file via `java -Dgraal.PGOInstrument`
+
+In this exercise we will create a PGO file named ```topten.iprof``` via `java -Dgraal.PGOInstrument`, we can do that by executing below command:
 
 ![user input](images/userinput.png)
 >```sh
@@ -951,6 +959,85 @@ sit = 282500
 ```
 
 The new benchmark (as a result of PGO) shows a better throughput of 28.20 seconds compare to 33.34 seconds which is showing more than 15% better throughput.
+
+
+##### Generating PGO file via `native-image --pgo-instrument`
+
+Another way of creating a PGO file is using `native-image --pgo-instrument`.
+
+This way you will create a `default.iprof` file from `native-image` tools directly. Execute below command: 
+
+![user input](images/userinput.png)
+>```sh
+>  native-image --pgo-instrument TopTen
+>```
+
+Note that `default.iprof` PGO file is not immediately created after you ran the above command.
+
+You need to run it the `topten` executable file again. Execute below command:
+
+![user input](images/userinput.png)
+>```sh
+>  ./topten large.txt
+>```
+
+Once finished you can see that `default.iprof` file is created. You can then do ```more default.iprof``` to see what is the inside of it.
+
+Final step is to create an optimized TopTen native binary executable using below command:
+
+![user input](images/userinput.png)
+>```sh
+>  native-image --pgo TopTen
+>```
+
+And re-run our test again:
+
+![user input](images/userinput.png)
+>```sh
+>  /usr/bin/time -v ./topten large.txt  # -l on MacOS
+>```
+
+You will see more or less this output result (could be slightly different from within your machine) :
+
+```
+sed = 502500
+ut = 392500
+in = 377500
+et = 352500
+id = 317500
+eu = 317500
+eget = 302500
+vel = 300000
+a = 287500
+sit = 282500
+	Command being timed: "./topten large.txt"
+	User time (seconds): 22.68
+	System time (seconds): 0.12
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:22.86
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 271560
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 66187
+	Voluntary context switches: 1
+	Involuntary context switches: 1002
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+```
+
+The latest benchmark shows even better throughput of 22.68 seconds compare to initial 33.34 seconds which is showing more than 32% better throughput.
+
+By now you have learned how to optimize an AOT binary executable file using PGO.
 
 The `native-image` tool has some
 [restrictions](https://github.com/oracle/graal/blob/master/substratevm/LIMITATIONS.md)
