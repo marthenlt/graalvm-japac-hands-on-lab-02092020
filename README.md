@@ -33,7 +33,7 @@ There are a lot of different parts to GraalVM, so while you may have heard of it
 
 In this workshop we will be using GraalVM Enterprise Edition 20.1.0 for JDK 8 which can be downloaded from [OTN - Oracle Technology Network](https://www.oracle.com/downloads/graalvm-downloads.html)
 
-####**_Important_** : 
+#### **_Important_** : 
 
 Everytime you see red computer icon ![user input](images/userinput.png) it means a command that you literally need to type from within your terminal. 
 
