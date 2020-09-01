@@ -377,18 +377,19 @@ Once you've cloned the above repo you can then change directory to ```native-ima
 So if you do ```ls -al``` the output of your working directory is something like this :
 
 ```
-drwxr-xr-x  12 mluther  staff        384 Aug 10 20:57 .
-drwxr-xr-x   7 mluther  staff        224 Aug 10 20:52 ..
-drwxr-xr-x  14 mluther  staff        448 Aug 10 20:59 .git
--rw-r--r--   1 mluther  staff         33 Aug 10 20:04 .gitignore
--rw-r--r--   1 mluther  staff        545 Aug 10 20:04 README.md
--rw-r--r--   1 mluther  staff       1127 Aug 10 20:04 TopTen.java
--rw-r--r--   1 mluther  staff         81 Aug 10 20:04 c2.sh
--rw-r--r--   1 mluther  staff         59 Aug 10 20:04 graal.sh
+drwxr-xr-x  13 mluther  staff        416 Sep  2 01:50 .
+drwxr-xr-x   9 mluther  staff        288 Aug 28 13:04 ..
+drwxr-xr-x  16 mluther  staff        512 Sep  2 01:50 .git
+-rw-r--r--   1 mluther  staff         33 Aug 11 12:30 .gitignore
+-rw-r--r--   1 mluther  staff        545 Aug 11 12:30 README.md
+-rw-r--r--   1 mluther  staff       2341 Aug 25 23:06 Streams.java
+-rw-r--r--   1 mluther  staff       1127 Aug 11 12:30 TopTen.java
+-rw-r--r--   1 mluther  staff         81 Aug 11 12:30 c2.sh
+-rw-r--r--   1 mluther  staff         59 Aug 11 12:30 graal.sh
 -rwxr-xr-x   1 mluther  staff  151397500 Sep 20  2019 large.txt
--rw-r--r--   1 mluther  staff   40230188 Aug 10 20:04 large.zip
--rw-r--r--   1 mluther  staff       1024 Aug 10 20:57 small.txt
--rw-r--r--   1 mluther  staff         55 Aug 10 20:04 timer.bat
+-rw-r--r--   1 mluther  staff   40230188 Aug 11 12:30 large.zip
+-rw-r--r--   1 mluther  staff       1024 Aug 11 12:30 small.txt
+-rw-r--r--   1 mluther  staff         55 Aug 11 12:30 timer.bat
 ```
 
 We'll use ```TopTen.java``` example program, which gives you the top-ten words in ```large.txt``` file (file size is round 150 MB).
@@ -730,46 +731,157 @@ In the next part of the AOT, we will create a **PGO (Profile Guided Optimisation
 
 `PGO` is a way to _teach_ GraalVM AOT compiler to further optimize the throughput of the resulted native binary executable application.
 
-Before we create a PGO file, we can always take current throughput benchmark using below command:
+For this exercise we will be using `Streams.java` progam as seen below.
+
+```java
+import java.util.Arrays;
+import java.util.Random;
+
+public class Streams {
+
+	static final double EMPLOYMENT_RATIO = 0.5;
+	static final int MAX_AGE = 100;
+	static final int MAX_SALARY = 200_000;
+
+	public static void main(String[] args) {
+
+		int iterations;
+		int dataLength;
+		try {
+			iterations = Integer.valueOf(args[0]);
+			dataLength = Integer.valueOf(args[1]);
+		} catch (Throwable ex) {
+			System.out.println("expected 2 integer arguments: number of iterations, length of data array");
+			return;
+		}
+
+		/* Create data set with a deterministic random seed. */
+		Random random = new Random(42);
+		Person[] persons = new Person[dataLength];
+		for (int i = 0; i < dataLength; i++) {
+			persons[i] = new Person(
+					random.nextDouble() >= EMPLOYMENT_RATIO ? Employment.EMPLOYED : Employment.UNEMPLOYED,
+					random.nextInt(MAX_SALARY),
+					random.nextInt(MAX_AGE));
+		}
+
+		long totalTime = 0;
+		for (int i = 1; i <= 20; i++) {
+			long startTime = System.currentTimeMillis();
+
+			long checksum = benchmark(iterations, persons);
+
+			long iterationTime = System.currentTimeMillis() - startTime;
+			totalTime += iterationTime;
+			System.out.println("Iteration " + i + " finished in " + iterationTime + " milliseconds with checksum " + Long.toHexString(checksum));
+		}
+		System.out.println("TOTAL time: " + totalTime);
+	}
+
+	static long benchmark(int iterations, Person[] persons) {
+		long checksum = 1;
+		for (int i = 0; i < iterations; ++i) {
+			double result = getValue(persons);
+
+			checksum = checksum * 31 + (long) result;
+		}
+		return checksum;
+	}
+
+	/*
+	 * The actual stream expression that we want to benchmark.
+	 */
+	public static double getValue(Person[] persons) {
+		return Arrays.stream(persons)
+				.filter(p -> p.getEmployment() == Employment.EMPLOYED)
+				.filter(p -> p.getSalary() > 100_000)
+				.mapToInt(Person::getAge)
+				.filter(age -> age >= 40).average()
+				.getAsDouble();
+	}
+}
+
+enum Employment {
+	EMPLOYED, UNEMPLOYED
+}
+
+class Person {
+	private final Employment employment;
+	private final int age;
+	private final int salary;
+
+	public Person(Employment employment, int height, int age) {
+		this.employment = employment;
+		this.salary = height;
+		this.age = age;
+	}
+
+	public int getSalary() {
+		return salary;
+	}
+
+	public int getAge() {
+		return age;
+	}
+
+	public Employment getEmployment() {
+		return employment;
+	}
+}
+```
+
+Compile it using below command:
 
 ![user input](images/userinput.png)
 >```sh
-> /usr/bin/time -v ./topten large.txt  # -l on MacOS
+> javac Streams.java
 >```
 
-the output is something like the following:
+And then create the native binary executable using below command:
+
+![user input](images/userinput.png)
+>```sh
+> native-image --no-server --no-fallback Streams
+>```
+
+Run the native binary executable:
+
+![user input](images/userinput.png)
+>```sh
+> ./streams 100000 200
+>```
+
+The above will create an array of 200 Person objects, with 100K iteration to calculate the average age that meet the criteria.
+
+The output is something like the following:
 
 ```
-sed = 502500
-ut = 392500
-in = 377500
-et = 352500
-id = 317500
-eu = 317500
-eget = 302500
-vel = 300000
-a = 287500
-sit = 282500
-       33.34 real        32.65 user         0.12 sys
- 275300352  maximum resident set size
-         0  average shared memory size
-         0  average unshared data size
-         0  average unshared stack size
-     67333  page reclaims
-         0  page faults
-         0  swaps
-         0  block input operations
-         0  block output operations
-         0  messages sent
-         0  messages received
-         0  signals received
-         0  voluntary context switches
-      5051  involuntary context switches
+Iteration 1 finished in 264 milliseconds with checksum e6e0b70aee921601
+Iteration 2 finished in 244 milliseconds with checksum e6e0b70aee921601
+Iteration 3 finished in 244 milliseconds with checksum e6e0b70aee921601
+Iteration 4 finished in 254 milliseconds with checksum e6e0b70aee921601
+Iteration 5 finished in 238 milliseconds with checksum e6e0b70aee921601
+Iteration 6 finished in 239 milliseconds with checksum e6e0b70aee921601
+Iteration 7 finished in 233 milliseconds with checksum e6e0b70aee921601
+Iteration 8 finished in 232 milliseconds with checksum e6e0b70aee921601
+Iteration 9 finished in 236 milliseconds with checksum e6e0b70aee921601
+Iteration 10 finished in 219 milliseconds with checksum e6e0b70aee921601
+Iteration 11 finished in 223 milliseconds with checksum e6e0b70aee921601
+Iteration 12 finished in 226 milliseconds with checksum e6e0b70aee921601
+Iteration 13 finished in 235 milliseconds with checksum e6e0b70aee921601
+Iteration 14 finished in 229 milliseconds with checksum e6e0b70aee921601
+Iteration 15 finished in 230 milliseconds with checksum e6e0b70aee921601
+Iteration 16 finished in 234 milliseconds with checksum e6e0b70aee921601
+Iteration 17 finished in 237 milliseconds with checksum e6e0b70aee921601
+Iteration 18 finished in 220 milliseconds with checksum e6e0b70aee921601
+Iteration 19 finished in 223 milliseconds with checksum e6e0b70aee921601
+Iteration 20 finished in 226 milliseconds with checksum e6e0b70aee921601
+TOTAL time: 4686
 ```
 
-The result is 33.34 seconds, and that'd be the throughput result before we optimise the topten binary executable application using PGO.
+The result is 4686 miliseconds, and that'd be the throughput result before we optimise the `streams` binary executable application using PGO.
 
-Next we will create a PGO file and create a new topten binary executable application.
+Next we will create a PGO file and create a new `streams` binary executable application.
 
 There are 2 ways of creating a PGO file:
 * Via `java -Dgraal.PGOInstrument`
@@ -778,14 +890,14 @@ There are 2 ways of creating a PGO file:
 
 ##### Generating PGO file via `java -Dgraal.PGOInstrument`
 
-In this exercise we will create a PGO file named ```topten.iprof``` via `java -Dgraal.PGOInstrument`, we can do that by executing below command:
+In this exercise we will create a PGO file named ```streams.iprof``` via `java -Dgraal.PGOInstrument`, we can do that by executing below command:
 
 ![user input](images/userinput.png)
 >```sh
-> java -Dgraal.PGOInstrument=topten.iprof TopTen large.txt
+> java -Dgraal.PGOInstrument=streams.iprof Streams 100000 200
 >```
 
-You can do ```more topten.iprof``` to see what is the inside of it.
+You can do ```more streams.iprof``` to see what is the inside of it.
 
 The output is something like this:
 
@@ -793,176 +905,110 @@ The output is something like this:
 {
   "version": "0.1.0",
   "types": [
-    { "id": 0, "typeName": "void" },
-    { "id": 1, "typeName": "java.lang.Object" },
-    { "id": 2, "typeName": "int" },
-    { "id": 3, "typeName": "char" },
-    { "id": 4, "typeName": "java.lang.String" },
+    { "id": 0, "typeName": "int" },
+    { "id": 1, "typeName": "char" },
+    { "id": 2, "typeName": "java.lang.String" },
+    { "id": 3, "typeName": "void" },
+    { "id": 4, "typeName": "java.lang.Object" },
     { "id": 5, "typeName": "boolean" },
-    { "id": 6, "typeName": "jdk.internal.org.objectweb.asm.ByteVector" },
-    { "id": 7, "typeName": "java.util.regex.Matcher" },
-    { "id": 8, "typeName": "java.util.regex.Pattern" },
-    { "id": 9, "typeName": "java.util.regex.Pattern$CharProperty" },
-    { "id": 10, "typeName": "java.util.Locale" },
-    { "id": 11, "typeName": "java.util.regex.Pattern$Start" },
-    { "id": 12, "typeName": "java.util.regex.Pattern$Node" },
-    { "id": 13, "typeName": "java.lang.CharSequence" },
-    { "id": 14, "typeName": "java.util.regex.Pattern$Bound" },
-    { "id": 15, "typeName": "java.util.regex.Pattern$7" },
-    { "id": 16, "typeName": "java.lang.AbstractStringBuilder" },
-    { "id": 17, "typeName": "long" },
-    { "id": 18, "typeName": "java.lang.Long" },
-    { "id": 19, "typeName": "TopTen$$Lambda$3b10c7a2f7c6d338f440772c95ba6f0817542440" },
-    { "id": 20, "typeName": "java.util.stream.ReferencePipeline$2$1" },
-    { "id": 21, "typeName": "TopTen$$Lambda$87848ac86c4290ac11720a83997f04131f536f8d" },
-    { "id": 22, "typeName": "java.util.stream.ReferencePipeline$3$1" },
-    { "id": 23, "typeName": "java.util.function.Function" },
-    { "id": 24, "typeName": "java.util.HashMap$Node" },
-    { "id": 25, "typeName": "java.util.HashMap" },
-    { "id": 26, "typeName": "java.lang.StringBuilder" },
-    { "id": 27, "typeName": "java.lang.CharacterData" },
-    { "id": 28, "typeName": "java.lang.CharacterDataLatin1" },
-    { "id": 29, "typeName": "[C" },
-    { "id": 30, "typeName": "java.lang.StringBuffer" },
-    { "id": 31, "typeName": "TopTen$$Lambda$0b0d64db00d822fc7a5961af823188880dabad02" },
-    { "id": 32, "typeName": "java.util.stream.Collectors$$Lambda$1f320588d289d5199520cf37e560d656e2059344" },
-    { "id": 33, "typeName": "java.util.stream.ReduceOps$3ReducingSink" },
-    { "id": 34, "typeName": "java.util.stream.Collectors$$Lambda$340637087fa4286e0452b77c431b9ea00388bbed" },
-    { "id": 35, "typeName": "java.util.function.Supplier" },
-    { "id": 36, "typeName": "java.util.function.BiConsumer" },
-    { "id": 37, "typeName": "java.util.Map" },
-    { "id": 38, "typeName": "java.util.stream.Collectors" },
-    { "id": 39, "typeName": "java.util.function.Function$$Lambda$dd209b89bc72e7ebb8e9ff32c52274f51a296df5" },
-    { "id": 40, "typeName": "java.util.stream.Collectors$$Lambda$e2cd1af36e54aee42d3805be70608ebe307e22cb" },
-    { "id": 41, "typeName": "java.io.BufferedReader" },
-    { "id": 42, "typeName": "java.util.stream.Collectors$$Lambda$87b1d011281ce3cc5029befeec60b7445dde247f" },
-    { "id": 43, "typeName": "java.util.stream.Collectors$$Lambda$2dce47c81eab063adef0b3713ba4481dce4b99f1" },
-    { "id": 44, "typeName": "java.lang.Character" },
-    { "id": 45, "typeName": "java.util.regex.Pattern$1" },
-    { "id": 46, "typeName": "[Ljava.lang.Object;" },
-    { "id": 47, "typeName": "java.util.AbstractCollection" },
-    { "id": 48, "typeName": "java.util.ArrayList$SubList" },
-    { "id": 49, "typeName": "java.util.ArrayList$SubList$1" },
-    { "id": 50, "typeName": "java.nio.ByteBuffer" },
-    { "id": 51, "typeName": "java.nio.CharBuffer" },
-    { "id": 52, "typeName": "java.nio.charset.CoderResult" },
-    { "id": 53, "typeName": "sun.nio.cs.UTF_8$Decoder" },
-    { "id": 54, "typeName": "java.util.function.Consumer" },
-    { "id": 55, "typeName": "java.util.Spliterators$ArraySpliterator" },
-    { "id": 56, "typeName": "[Ljava.lang.String;" },
-    { "id": 57, "typeName": "java.util.regex.Pattern$Dot" },
-    { "id": 58, "typeName": "java.util.regex.Pattern$LastNode" },
-    { "id": 59, "typeName": "java.util.regex.Pattern$CharProperty$1" },
-    { "id": 60, "typeName": "java.util.ArrayList" },
-    { "id": 61, "typeName": "java.lang.Class" },
-    { "id": 62, "typeName": "java.util.Arrays" },
-    { "id": 63, "typeName": "java.lang.reflect.Array" },
-    { "id": 64, "typeName": "[B" },
-    { "id": 65, "typeName": "sun.nio.cs.UTF_8$Encoder" },
-    { "id": 66, "typeName": "java.lang.Math" },
-    { "id": 67, "typeName": "java.util.regex.Pattern$TreeInfo" },
-    { "id": 68, "typeName": "java.util.regex.Pattern$Curly" },
-    { "id": 69, "typeName": "java.util.regex.Pattern$Single" },
-    { "id": 70, "typeName": "java.util.regex.Pattern$Slice" },
-    { "id": 71, "typeName": "java.util.regex.Pattern$BitClass" },
-    { "id": 72, "typeName": "java.util.Spliterator" },
-    { "id": 73, "typeName": "java.util.stream.StreamOpFlag" },
-    { "id": 74, "typeName": "java.util.stream.AbstractPipeline" },
-    { "id": 75, "typeName": "java.nio.DirectLongBufferU" },
-    { "id": 76, "typeName": "[Ljava.util.concurrent.ConcurrentHashMap$Node;" },
-    { "id": 77, "typeName": "java.util.concurrent.ConcurrentHashMap$Node" },
-    { "id": 78, "typeName": "java.util.concurrent.ConcurrentHashMap" },
-    { "id": 79, "typeName": "java.lang.SecurityManager" },
-    { "id": 80, "typeName": "java.lang.System" },
-    { "id": 81, "typeName": "java.util.AbstractList" },
-    { "id": 82, "typeName": "java.util.stream.ReferencePipeline$Head" },
-    { "id": 83, "typeName": "java.util.Spliterators" },
-    { "id": 84, "typeName": "java.io.BufferedReader$1" },
-    { "id": 85, "typeName": "java.util.stream.ReferencePipeline$7$1" },
-    { "id": 86, "typeName": "TopTen$$Lambda$06682aee951e0e3ae2baa6a58ccece9786705f33" },
-    { "id": 87, "typeName": "java.nio.Buffer" },
-    { "id": 88, "typeName": "sun.nio.ch.Util" },
-    { "id": 89, "typeName": "java.util.Iterator" },
-    { "id": 90, "typeName": "java.nio.DirectByteBuffer" },
-    { "id": 91, "typeName": "java.lang.ThreadLocal" },
-    { "id": 92, "typeName": "sun.nio.cs.UTF_8" },
-    { "id": 93, "typeName": "java.nio.HeapByteBuffer" },
-    { "id": 94, "typeName": "java.nio.HeapCharBuffer" },
-    { "id": 95, "typeName": "java.nio.charset.CharsetDecoder" },
-    { "id": 96, "typeName": "sun.nio.cs.StreamDecoder" },
-    { "id": 97, "typeName": "sun.nio.ch.FileChannelImpl" },
-    { "id": 98, "typeName": "sun.nio.ch.ChannelInputStream" }
+    { "id": 6, "typeName": "java.util.Locale" },
+    { "id": 7, "typeName": "java.util.stream.Sink" },
+    { "id": 8, "typeName": "java.util.stream.AbstractPipeline" },
+    { "id": 9, "typeName": "java.util.stream.ReferencePipeline$2" },
+    { "id": 10, "typeName": "java.util.stream.IntPipeline$9" },
+    { "id": 11, "typeName": "java.util.stream.ReferencePipeline$4" },
+    { "id": 12, "typeName": "jdk.internal.org.objectweb.asm.ByteVector" },
+    { "id": 13, "typeName": "[C" },
+    { "id": 14, "typeName": "[B" },
+    { "id": 15, "typeName": "sun.nio.cs.UTF_8$Encoder" },
+    { "id": 16, "typeName": "java.util.stream.Sink$ChainedReference" },
+    { "id": 17, "typeName": "java.util.stream.IntPipeline$9$1" },
+    { "id": 18, "typeName": "java.util.stream.ReferencePipeline$2$1" },
+    { "id": 19, "typeName": "java.util.stream.ReferencePipeline$4$1" },
+    { "id": 20, "typeName": "java.util.stream.StreamShape" },
+    { "id": 21, "typeName": "java.util.stream.ReferencePipeline$StatelessOp" },
+    { "id": 22, "typeName": "java.util.stream.IntPipeline$StatelessOp" },
+    { "id": 23, "typeName": "long" },
+    { "id": 24, "typeName": "java.util.function.Consumer" },
+    { "id": 25, "typeName": "java.util.Spliterators$ArraySpliterator" },
+    { "id": 26, "typeName": "Streams$$Lambda$bcba0c9074f907ff1118ccf4b20382b375b44963" },
+    { "id": 27, "typeName": "Streams$$Lambda$c53cfc0c6f6864e593fb5fc8f47a4c561a797150" },
+    { "id": 28, "typeName": "java.util.Spliterator" },
+    { "id": 29, "typeName": "java.util.stream.StreamOpFlag" },
+    { "id": 30, "typeName": "[LPerson;" },
+    { "id": 31, "typeName": "double" },
+    { "id": 32, "typeName": "Streams" },
+    { "id": 33, "typeName": "java.util.OptionalDouble" },
+    { "id": 34, "typeName": "java.util.stream.IntPipeline" },
+    { "id": 35, "typeName": "[Ljava.lang.Object;" },
+    { "id": 36, "typeName": "java.util.Spliterators" },
+    { "id": 37, "typeName": "java.util.stream.TerminalOp" },
+    { "id": 38, "typeName": "java.util.stream.ReduceOps$7" },
+    { "id": 39, "typeName": "java.util.stream.PipelineHelper" },
+    { "id": 40, "typeName": "java.util.stream.ReduceOps$ReduceOp" },
+    { "id": 41, "typeName": "Streams$$Lambda$eae7de59100ee7efdaf17ed2cdd0bde92ce7cd36" },
+    { "id": 42, "typeName": "Streams$$Lambda$05225ea80029b82a7c73c194f3554dc78ecdb5db" },
+    { "id": 43, "typeName": "java.util.stream.ReduceOps$7ReducingSink" },
+    { "id": 44, "typeName": "java.util.stream.IntPipeline$$Lambda$28f2139532a62de6690b06ac907ce20a1b664ed0" },
+    { "id": 45, "typeName": "java.lang.CharacterDataLatin1" },
+    { "id": 46, "typeName": "java.lang.CharacterData" }
   ],
   "methods": [
-    { "id": 0, "methodName": "<init>", "signature": [ 1, 0 ] },
-    { "id": 1, "methodName": "charAt", "signature": [ 4, 3, 2 ] },
-    { "id": 2, "methodName": "length", "signature": [ 4, 2 ] },
-    { "id": 3, "methodName": "equals", "signature": [ 4, 5, 1 ] },
-    { "id": 4, "methodName": "indexOf", "signature": [ 4, 2, 2, 2 ] },
-    { "id": 5, "methodName": "lastIndexOf", "signature": [ 4, 2, 2, 2 ] },
-    { "id": 6, "methodName": "hashCode", "signature": [ 4, 2 ] },
-    { "id": 7, "methodName": "putUTF8", "signature": [ 6, 6, 4 ] },
-    { "id": 8, "methodName": "reset", "signature": [ 7, 7 ] },
-    { "id": 9, "methodName": "getTextLength", "signature": [ 7, 2 ] },
-    { "id": 10, "methodName": "compile", "signature": [ 8, 0 ] },
-    { "id": 11, "methodName": "clazz", "signature": [ 8, 9, 5 ] },
-    { "id": 12, "methodName": "toLowerCase", "signature": [ 4, 4, 10 ] },
-    { "id": 13, "methodName": "search", "signature": [ 7, 5, 2 ] },
-    { "id": 14, "methodName": "sequence", "signature": [ 8, 12, 12 ] },
-    { "id": 15, "methodName": "find", "signature": [ 7, 5 ] },
-    { "id": 16, "methodName": "match", "signature": [ 11, 5, 7, 2, 13 ] },
-    { "id": 17, "methodName": "replaceAll", "signature": [ 7, 4, 4 ] },
-    { "id": 18, "methodName": "substring", "signature": [ 4, 4, 2, 2 ] },
-    { "id": 19, "methodName": "append", "signature": [ 16, 16, 13, 2, 2 ] },
-    { "id": 20, "methodName": "longValue", "signature": [ 18, 17 ] },
+    { "id": 0, "methodName": "charAt", "signature": [ 2, 1, 0 ] },
+    { "id": 1, "methodName": "<init>", "signature": [ 4, 3 ] },
+    { "id": 2, "methodName": "hashCode", "signature": [ 2, 0 ] },
+    { "id": 3, "methodName": "indexOf", "signature": [ 2, 0, 0, 0 ] },
+    { "id": 4, "methodName": "equals", "signature": [ 2, 5, 4 ] },
+    { "id": 5, "methodName": "toUpperCase", "signature": [ 2, 2, 6 ] },
+    { "id": 6, "methodName": "wrapSink", "signature": [ 8, 7, 7 ] },
+    { "id": 7, "methodName": "putUTF8", "signature": [ 12, 12, 2 ] },
+    { "id": 8, "methodName": "encode", "signature": [ 15, 0, 13, 0, 0, 14 ] },
+
 ...
+
 ```
 
-Next we can then re-create the topten binary executable with our PGO ```topten.iprof```, type the following command:
+Next we can then re-create the topten binary executable with our PGO `streams.iprof`, type the following command:
 
 ![user input](images/userinput.png)
 >```sh
-> native-image --no-server --no-fallback --pgo=topten.iprof TopTen
+> native-image --no-server --no-fallback --pgo=streams.iprof Streams
 >```
 
 Then we execute the same benchmarking again..
 
 ![user input](images/userinput.png)
 >```sh
-> /usr/bin/time -v ./topten large.txt  # -l on MacOS
+> ./streams 100000 200
 >```
 
 The result is:
 
 ```
-sed = 502500
-ut = 392500
-in = 377500
-et = 352500
-id = 317500
-eu = 317500
-eget = 302500
-vel = 300000
-a = 287500
-sit = 282500
-       28.20 real        27.50 user         0.09 sys
- 274989056  maximum resident set size
-         0  average shared memory size
-         0  average unshared data size
-         0  average unshared stack size
-     67249  page reclaims
-         0  page faults
-         0  swaps
-         0  block input operations
-         0  block output operations
-         0  messages sent
-         0  messages received
-         0  signals received
-         0  voluntary context switches
-       389  involuntary context switches
+Iteration 1 finished in 183 milliseconds with checksum e6e0b70aee921601
+Iteration 2 finished in 157 milliseconds with checksum e6e0b70aee921601
+Iteration 3 finished in 152 milliseconds with checksum e6e0b70aee921601
+Iteration 4 finished in 148 milliseconds with checksum e6e0b70aee921601
+Iteration 5 finished in 160 milliseconds with checksum e6e0b70aee921601
+Iteration 6 finished in 162 milliseconds with checksum e6e0b70aee921601
+Iteration 7 finished in 149 milliseconds with checksum e6e0b70aee921601
+Iteration 8 finished in 137 milliseconds with checksum e6e0b70aee921601
+Iteration 9 finished in 141 milliseconds with checksum e6e0b70aee921601
+Iteration 10 finished in 151 milliseconds with checksum e6e0b70aee921601
+Iteration 11 finished in 140 milliseconds with checksum e6e0b70aee921601
+Iteration 12 finished in 133 milliseconds with checksum e6e0b70aee921601
+Iteration 13 finished in 151 milliseconds with checksum e6e0b70aee921601
+Iteration 14 finished in 142 milliseconds with checksum e6e0b70aee921601
+Iteration 15 finished in 133 milliseconds with checksum e6e0b70aee921601
+Iteration 16 finished in 144 milliseconds with checksum e6e0b70aee921601
+Iteration 17 finished in 151 milliseconds with checksum e6e0b70aee921601
+Iteration 18 finished in 137 milliseconds with checksum e6e0b70aee921601
+Iteration 19 finished in 138 milliseconds with checksum e6e0b70aee921601
+Iteration 20 finished in 148 milliseconds with checksum e6e0b70aee921601
+TOTAL time: 2957
 ```
 
-The new benchmark (as a result of PGO) shows a better throughput of 28.20 seconds compare to 33.34 seconds which is showing more than 15% better throughput.
+The new benchmark (as a result of PGO) shows a better throughput of 2957 milliseconds compare to 4686 miliseconds which is showing more than 37% better throughput.
 
 
 ##### Generating PGO file via `native-image --pgo-instrument`
@@ -973,16 +1019,16 @@ This way you will create a `default.iprof` file from `native-image` tools direct
 
 ![user input](images/userinput.png)
 >```sh
->  native-image --pgo-instrument TopTen
+>  native-image --pgo-instrument Streams
 >```
 
 Note that `default.iprof` PGO file is not immediately created after you ran the above command.
 
-You need to run it the `topten` executable file again. Execute below command:
+You need to run it the newly created binary `streams` executable file again. Execute below command:
 
 ![user input](images/userinput.png)
 >```sh
->  ./topten large.txt
+> ./streams 100000 200
 >```
 
 Once finished you can see that `default.iprof` file is created. You can then do ```more default.iprof``` to see what is the inside of it.
@@ -991,55 +1037,43 @@ Final step is to create an optimized TopTen native binary executable using below
 
 ![user input](images/userinput.png)
 >```sh
->  native-image --pgo TopTen
+>  native-image --pgo Streams
 >```
 
 And re-run our test again:
 
 ![user input](images/userinput.png)
 >```sh
->  /usr/bin/time -v ./topten large.txt  # -l on MacOS
+> ./streams 100000 200
 >```
 
 You will see more or less this output result (could be slightly different from within your machine) :
 
 ```
-sed = 502500
-ut = 392500
-in = 377500
-et = 352500
-id = 317500
-eu = 317500
-eget = 302500
-vel = 300000
-a = 287500
-sit = 282500
-	Command being timed: "./topten large.txt"
-	User time (seconds): 22.68
-	System time (seconds): 0.12
-	Percent of CPU this job got: 99%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:22.86
-	Average shared text size (kbytes): 0
-	Average unshared data size (kbytes): 0
-	Average stack size (kbytes): 0
-	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 271560
-	Average resident set size (kbytes): 0
-	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 66187
-	Voluntary context switches: 1
-	Involuntary context switches: 1002
-	Swaps: 0
-	File system inputs: 0
-	File system outputs: 0
-	Socket messages sent: 0
-	Socket messages received: 0
-	Signals delivered: 0
-	Page size (bytes): 4096
-	Exit status: 0
+Iteration 1 finished in 44 milliseconds with checksum e6e0b70aee921601
+Iteration 2 finished in 37 milliseconds with checksum e6e0b70aee921601
+Iteration 3 finished in 33 milliseconds with checksum e6e0b70aee921601
+Iteration 4 finished in 32 milliseconds with checksum e6e0b70aee921601
+Iteration 5 finished in 28 milliseconds with checksum e6e0b70aee921601
+Iteration 6 finished in 36 milliseconds with checksum e6e0b70aee921601
+Iteration 7 finished in 33 milliseconds with checksum e6e0b70aee921601
+Iteration 8 finished in 28 milliseconds with checksum e6e0b70aee921601
+Iteration 9 finished in 29 milliseconds with checksum e6e0b70aee921601
+Iteration 10 finished in 28 milliseconds with checksum e6e0b70aee921601
+Iteration 11 finished in 27 milliseconds with checksum e6e0b70aee921601
+Iteration 12 finished in 30 milliseconds with checksum e6e0b70aee921601
+Iteration 13 finished in 35 milliseconds with checksum e6e0b70aee921601
+Iteration 14 finished in 31 milliseconds with checksum e6e0b70aee921601
+Iteration 15 finished in 28 milliseconds with checksum e6e0b70aee921601
+Iteration 16 finished in 29 milliseconds with checksum e6e0b70aee921601
+Iteration 17 finished in 29 milliseconds with checksum e6e0b70aee921601
+Iteration 18 finished in 28 milliseconds with checksum e6e0b70aee921601
+Iteration 19 finished in 32 milliseconds with checksum e6e0b70aee921601
+Iteration 20 finished in 36 milliseconds with checksum e6e0b70aee921601
+TOTAL time: 633
 ```
 
-The latest benchmark shows even better throughput of 22.68 seconds compare to initial 33.34 seconds which is showing more than 32% better throughput.
+The latest benchmark shows even better throughput of 633 milliseconds compare to initial 4686 miliseconds which is showing more than 86% better throughput.
 
 By now you have learned how to optimize an AOT binary executable file using PGO.
 
