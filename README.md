@@ -1243,6 +1243,8 @@ Build the Graal fatjar:
 > ./gradlew assemble
 >```
 
+Modify the `Dockerfile` content, find `RUN native-image -cp build/libs/complete-*-all.jar` and change it to `RUN native-image -H:Class=example.micronaut.Application -cp build/libs/complete-*-all.jar`
+
 Then build a docker image from it, but make sure docker daemon service is already ran.
 
 ![user input](images/userinput.png)
